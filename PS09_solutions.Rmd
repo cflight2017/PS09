@@ -1,0 +1,183 @@
+---
+title: "STAT/MATH 495: Problem Set 09"
+author: "WRITE YOUR NAME(S) HERE"
+date: "2017-11-07"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 2
+    collapsed: false
+    smooth_scroll: false
+    df_print: kable
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, fig.width=8, fig.height=4.5, message=FALSE, warning = FALSE
+  )
+set.seed(76)
+
+library(tidyverse)
+```
+
+
+
+# Collaboration
+
+Please indicate who you collaborated with on this assignment: 
+
+
+
+# Question 1: Run k-means
+
+```{r}
+observations_1 <- read_csv("data/observations_1.csv")
+observations_2 <- read_csv("data/observations_2.csv")
+
+# Set observations to be one of two datasets
+observations <- observations_1
+
+# Fit model for k=2
+k <- 2
+k_means_results <- kmeans(observations, centers=k)
+clusters <- k_means_results$cluster
+cluster_centers <- k_means_results$centers
+
+# Add cluster results to observations. Note we convert to factor since cluster
+# ID's should be treated as categorical
+observations$cluster <- as.factor(clusters)
+
+# Add cluster ID's to cluster_centers
+cluster_centers <- cluster_centers %>% 
+  as_tibble() %>% 
+  mutate(cluster=as.factor(1:k))
+
+ggplot(NULL, aes(x=x1, y=x2, col=cluster)) +
+  geom_point(data=observations) +
+  geom_point(data=cluster_centers, size=5)
+```
+
+**Questions**:
+
+1. Run KMC 10 times on `observations_1` and comment on the consistency of the
+results.
+1. Speculate on the root cause of any consistency or inconsistency in the
+results.
+1. Run KMC 10 times on `observations_2` and comment on the consistency of the
+results.
+1. Speculate on the root cause of any consistency or inconsistency in the
+results.
+
+**Answers**:
+
+1. The cluster centers vary quite a bit.
+1. This is because there is really only one rough cluster of points overall, and there is no clear way to split them into `k=2` clusters. Thus the results are very sensitive to where the initial (random) cluster centers get located.
+1. The cluster centers stay roughly the same, but the cluster label of "1" vs "2" does alternate a little. This is because the labels are arbitrary and dependent on where "cluster 1" gets intially assigned at random.
+1. The data here split nicely into 2 clusters, which is what `k` is set to. However, if we set `k=3` and run the same bit of code several times, we see that the location of the centers vary quite a bit. Try this and convince yourselves of this fact.
+
+
+## Code that created `observations`
+
+Looking at the code that created both data frames, we notice:
+
+* That `x1` and `x2` in `observations_1` are sampled from the same distribution: Uniform$(0,2)$
+* That `x1` and `x2` in `observations_2` are sampled from the non-overlapping distributions: Uniform$(0,1)$ and Uniform$(1,2)$ respectively
+
+```{r}
+set.seed(76)
+n_points <- 50
+observations_1 <- data_frame(
+  x1 = c(runif(n_points, min=0, max=2), runif(n_points, min=0, max=2)),
+  x2 = c(runif(n_points, min=0, max=2), runif(n_points, min=0, max=2))
+)
+write_csv(observations_1, path="data/observations_1.csv")
+
+n_points <- 50
+observations_2 <- data_frame(
+  x1 = c(runif(n_points, min=0, max=1), runif(n_points, min=1, max=2)),
+  x2 = c(runif(n_points, min=0, max=1), runif(n_points, min=1, max=2))
+)
+write_csv(observations_2, path="data/observations_2.csv")
+```
+
+
+
+
+# Bonus question: Code your own
+
+Read ISLR page 388 Algorithm 10.1 and implement k-means clustering from scratch.
+Don't worry about doing it for general $k$; keep it simple and do it for $k=2$
+specifically. Apply it to `observations_2` from above.
+
+```{r}
+# Hint:
+library(proxy)
+A <- data_frame(
+  x1 = c(0, 0.5, 0.75, 1),
+  x2 = c(0, 0.5, 0.75, 1)
+)
+B <- data_frame(
+  x1 = c(1, 0),
+  x2 = c(1, 0)
+)
+distance_matrix <- proxy::dist(x=A, y=B)
+distance_matrix
+apply(distance_matrix, 1, which.min)
+```
+
+
+## Example solutions
+
+There are many ways of doing this, here is one below, which is an implementation of
+[Lloyd's algorithm](https://en.wikipedia.org/wiki/Lloyd%27s_algorithm). Another algorithm is [K-means++](https://en.wikipedia.org/wiki/K-means%2B%2B).
+
+```{r}
+k <- 2
+
+# Set observations to be second dataset
+observations <- observations_2
+
+# Define initial cluster centers at random
+centers <- data_frame(
+  cluster = 1:k,
+  x1 = runif(k, min=0, max=2),
+  x2 = runif(k, min=0, max=2)
+)
+
+# Assign observations to all initial cluster centers
+D <- proxy::dist(x=observations[, c("x1", "x2")], y=centers[, c("x1", "x2")])
+observations$cluster <- apply(D, 1, which.min)
+
+
+while(TRUE){
+  # Recompute cluster centers
+  centers <- observations %>% 
+    group_by(cluster) %>% 
+    summarize(x1=mean(x1), x2=mean(x2))
+  
+  # Ressign observations to recomputed cluster centers
+  D <- proxy::dist(x=observations[, c("x1", "x2")], y=centers[, c("x1", "x2")])
+  new_clusters <- apply(D, 1, which.min)
+  
+  # Count number not equal. This will be used as our stopping criteria, when
+  # there is no longer any change in the cluster assignments. If no change, then
+  # stop.
+  n_observations_not_equal <- sum(new_clusters != observations$cluster)
+  
+  if(n_observations_not_equal == 0){
+    break
+  } else {
+    observations$cluster <- new_clusters
+  }
+}
+```
+
+Let's visualize our results:
+
+```{r}
+ggplot(NULL, aes(x=x1, y=x2, col=as.factor(cluster))) +
+  geom_point(data=observations) +
+  geom_point(data=centers, size=5) +
+  labs(col="Cluster #", title="Programmed k-Means Clustering")
+```
